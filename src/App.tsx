@@ -1,3 +1,8 @@
+import { DndContext, closestCenter } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { TaskCard } from './TaskCard'; // Make sure this path is correct!
+import { DroppableColumn } from './DroppableColumn';
+
 import { useEffect, useState } from 'react' // Added 'useState' here
 import { supabase } from './lib/supabase'   // You need this to talk to your DB
 import { Plus, X } from 'lucide-react'       // Make sure these match the icons you use
@@ -12,14 +17,26 @@ const COLUMNS = [
 export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [newTaskTitle, setNewTaskTitle] = useState('')
+  const [tasks, setTasks] = useState<any[]>([]);
+  
+  const fetchTasks = async () => {
+    const { data, error } = await supabase
+      .from('Tasks')
+      .select('*');
+    
+    if (error) console.error('Error fetching:', error);
+    else setTasks(data || []);
+  };
 
   useEffect(() => {
-    const signInGuest = async () => {
-      const { data, error } = await supabase.auth.signInAnonymously();
-      if (error) console.error("Guest login failed:", error.message);
+    const init = async () => {
+      // Wait for login first so RLS knows who we are
+      await supabase.auth.signInAnonymously();
+      // Then get the tasks
+      fetchTasks();
     };
     
-    signInGuest();
+    init();
   }, []);
 
   const handleCreateTask = async (e: React.FormEvent) => {
@@ -35,9 +52,37 @@ export default function App() {
     } else {
       setNewTaskTitle('')
       setIsModalOpen(false)
-      // We will add a fetch function later to refresh the board!
+      fetchTasks();
     }
   }
+  const handleDragEnd = async (event: any) => {
+    const { active, over } = event;
+    if (!over) return;
+
+    const taskId = active.id;
+    // Ensure we only use the ID if it's one of our valid column names
+    const newStatus = over.id; 
+    const isValidColumn = COLUMNS.some(col => col.id === newStatus);
+
+    if (!isValidColumn) return; // This prevents tasks from "vanishing" if dropped on other cards
+
+    const taskToUpdate = tasks.find(t => t.id === taskId);
+    if (taskToUpdate?.status === newStatus) return;
+
+    // 1. Update UI
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
+
+    // 2. Update Supabase
+    const { error } = await supabase
+      .from('Tasks')
+      .update({ status: newStatus })
+      .eq('id', taskId);
+
+    if (error) {
+      console.error("Save failed:", error.message);
+      fetchTasks(); 
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-900">
@@ -60,20 +105,36 @@ export default function App() {
 
       {/* Kanban Board */}
       <main className="p-6 h-[calc(100vh-88px)] overflow-x-auto">
-        <div className="flex gap-6 h-full min-w-max">
-          {COLUMNS.map((column) => (
-            <div key={column.id} className="w-80 flex flex-col gap-4">
-              <div className="flex items-center justify-between px-2">
-                <h2 className="font-semibold text-slate-600 uppercase text-sm tracking-wider">
-                  {column.title}
-                </h2>
+        <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <div className="flex gap-6 h-full min-w-max">
+            {COLUMNS.map((column) => (
+              <div key={column.id} className="w-80 flex flex-col gap-4">
+                <div className="flex items-center justify-between px-2">
+                  <h2 className="font-semibold text-slate-600 uppercase text-sm tracking-wider">
+                    {column.title}
+                  </h2>
+                </div>
+                
+                {/* INSERT DROPPABLE HERE: Replacing the old static div */}
+                <DroppableColumn id={column.id}>
+                  <div className="flex flex-col gap-3">
+                    <SortableContext 
+                      items={tasks.filter(t => t.status === column.id).map(t => t.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      {tasks
+                        .filter((task) => task.status === column.id)
+                        .map((task) => (
+                          <TaskCard key={task.id} task={task} />
+                        ))}
+                    </SortableContext>
+                  </div>
+                </DroppableColumn>
+
               </div>
-              <div className="flex-1 bg-slate-100/50 rounded-xl border-2 border-dashed border-slate-200 p-4">
-                {/* Tasks will appear here */}
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </DndContext>
       </main>
 
       {/* TASK MODAL */}
