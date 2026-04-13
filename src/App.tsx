@@ -4,13 +4,13 @@ import { TaskCard } from './TaskCard';
 import { DroppableColumn } from './DroppableColumn';
 import { useEffect, useState } from 'react';
 import { supabase } from './lib/supabase';
-import { Plus, X, Loader2 } from 'lucide-react'; // Added Loader2 for loading states
+import { Plus, X, Loader2 } from 'lucide-react'; 
 
 const COLUMNS = [
-  { id: 'todo', title: 'To Do' },
-  { id: 'in_progress', title: 'In Progress' },
-  { id: 'in_review', title: 'In Review' },
-  { id: 'done', title: 'Done' }
+  { id: 'todo', title: 'To Do', color: 'bg-slate-400' },
+  { id: 'in_progress', title: 'In Progress', color: 'bg-blue-500' },
+  { id: 'in_review', title: 'In Review', color: 'bg-amber-500' }, 
+  { id: 'done', title: 'Done', color: 'bg-emerald-500' }
 ]
 
 export default function App() {
@@ -35,9 +35,19 @@ export default function App() {
 
   useEffect(() => {
     const init = async () => {
-      await supabase.auth.signInAnonymously();
+      // 1. Check if we already have a saved guest session
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      // 2. Only create a new anonymous account if we AREN'T already logged in
+      if (!session) {
+        const { error } = await supabase.auth.signInAnonymously();
+        if (error) console.error("Login failed:", error.message);
+      }
+      
+      // 3. Now fetch the tasks using our persistent ID
       fetchTasks();
     };
+    
     init();
   }, []);
 
@@ -147,9 +157,22 @@ export default function App() {
             <div className="flex gap-6 h-full min-w-max">
               {COLUMNS.map((column) => (
                 <div key={column.id} className="w-80 flex flex-col gap-4">
-                  <h2 className="font-semibold text-slate-600 uppercase text-sm tracking-wider px-2">
-                    {column.title}
-                  </h2>
+                  {/* --- NEW COLORED HEADER & COUNTER --- */}
+                  <div className="flex items-center justify-between px-2">
+                    <div className="flex items-center gap-2">
+                      {/* The colored status dot */}
+                      <div className={`w-2.5 h-2.5 rounded-full ${column.color}`} />
+                      <h2 className="font-semibold text-slate-700 uppercase text-sm tracking-wider">
+                        {column.title}
+                      </h2>
+                    </div>
+                    
+                    {/* The task counter badge */}
+                    <span className="bg-slate-200 text-slate-600 text-xs font-bold px-2 py-0.5 rounded-full">
+                      {tasks.filter(t => t.status === column.id).length}
+                    </span>
+                  </div>
+                  {/* ------------------------------------ */}
                   
                   <DroppableColumn id={column.id}>
                     <div className="flex flex-col gap-3 min-h-[100px]">
